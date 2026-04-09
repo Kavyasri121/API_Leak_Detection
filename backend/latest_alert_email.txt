@@ -1,0 +1,13 @@
+To: kavithamandapati5@gmail.com
+From: keyshield.alerts@gmail.com
+Subject: 🚨 SECURITY ALERT: API Leak Detected!
+
+🚨 SECURITY ALERT: We detected 1 API key leak(s) in your recent scan.
+Source: manual
+
+--- LEAK DETAILS ---
+• Type: AWS
+  RiskLevel: HIGH
+  Exposed Match: AKIA1234567890ABCDEF
+
+Please review your KeyShield dashboard immediately to mitigate risks.

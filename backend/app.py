@@ -22,6 +22,9 @@ db = client["keyshield"]
 users_collection = db["users"]
 history_collection = db["history"]
 
+import re
+from werkzeug.security import generate_password_hash, check_password_hash
+
 # ============================================================
 # 🔐 SIGNUP API
 # ============================================================
@@ -36,14 +39,21 @@ def signup():
     if not name or not email or not password:
         return jsonify({"error": "All fields are required"}), 400
 
+    # Password strength validation
+    # Min 8 characters, at least one letter, one number, and one special character
+    if len(password) < 8 or not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password) or not re.search(r"[@$!%*#?&]", password):
+        return jsonify({"error": "Password must be at least 8 characters long, and include at least one letter, one number, and one special character (@$!%*#?&)."}), 400
+
     # check if user already exists
     if users_collection.find_one({"email": email}):
         return jsonify({"error": "User already exists"}), 400
 
+    hashed_password = generate_password_hash(password)
+
     users_collection.insert_one({
         "name": name,
         "email": email,
-        "password": password
+        "password": hashed_password
     })
 
     return jsonify({"message": "Signup successful"})
@@ -62,12 +72,9 @@ def login():
     if not email or not password:
         return jsonify({"error": "Email and password required"}), 400
 
-    user = users_collection.find_one({
-        "email": email,
-        "password": password
-    })
+    user = users_collection.find_one({"email": email})
 
-    if user:
+    if user and check_password_hash(user["password"], password):
         return jsonify({
             "message": "Login successful",
             "name": user["name"],
@@ -114,7 +121,7 @@ def scan():
             results = scan_text(forum_data)
 
         # ====================================================
-        # 📜 SAVE USER HISTORY
+        # 📜 SAVE USER HISTORY & SEND EMAIL ALERT
         # ====================================================
         if user_email:
             history_collection.insert_one({
@@ -123,6 +130,8 @@ def scan():
                 "total_findings": len(results),
                 "date": str(datetime.now())
             })
+
+
 
         return jsonify({"results": results})
 
