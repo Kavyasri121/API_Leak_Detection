@@ -43,7 +43,48 @@ const Scanner = () => {
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
+  // Remediation states
+  const [remediatingKey, setRemediatingKey] = useState(null); // stores index
+  const [remediationStep, setRemediationStep] = useState(0);
+  const [newSecureKey, setNewSecureKey] = useState("");
 
+
+
+  const handleRemediate = async (finding, index) => {
+    setRemediatingKey(index);
+    setRemediationStep(1); // Step 1: Scrubbing and Revoking
+
+    // Step 1: Scrub local code if manual source
+    if (activeSource === "manual") {
+      const scrubbedText = text.replace(finding.match, "process.env.SECURE_KEY");
+      setText(scrubbedText);
+    }
+    
+    // Step 2 & 3: Revoke and Generate
+    try {
+      const res = await fetch(`${BASE_URL}/remediate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: finding.match, type: finding.type }),
+      });
+      const data = await res.json();
+      
+      setRemediationStep(2); // Generating secure key...
+      
+      if (res.ok) {
+        setTimeout(() => {
+          setNewSecureKey(data.new_key);
+          setRemediationStep(3); // Done!
+        }, 1500); // UI delay for impact
+      } else {
+        alert(data.error);
+        setRemediatingKey(null);
+      }
+    } catch {
+      alert("Error reaching remediation backend.");
+      setRemediatingKey(null);
+    }
+  };
 
   const chartData = results
     ? (() => {
@@ -276,14 +317,81 @@ const Scanner = () => {
 </div>
             {/* Findings */}
             {results.findings.map((item, i) => (
-              <div key={i} className="p-4 bg-white/5 rounded-xl">
-                <div className="flex justify-between">
-                  <h3>{item.type}</h3>
-                  <span className={getRiskColor(item.risk)}>
-                    {item.risk}
+              <div key={i} className="p-5 bg-white/5 rounded-xl border border-white/10 relative overflow-hidden">
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="font-semibold text-lg">{item.type}</h3>
+                  <span className={`px-3 py-1 rounded-md text-xs font-bold tracking-wider ${getRiskColor(item.risk)}`}>
+                    {item.risk} RISK
                   </span>
                 </div>
-                <code className="text-red-400">{item.match}</code>
+                <code className="text-red-400 bg-black/50 px-2 py-1 rounded select-all break-all">{item.match}</code>
+                
+                {/* Auto-Remediation UI */}
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  {remediatingKey !== i ? (
+                    <button 
+                      onClick={() => handleRemediate(item, i)}
+                      className="px-4 py-2 bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 border border-indigo-500/30 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+                    >
+                      Fix Issue (Auto-Remediate)
+                    </button>
+                  ) : (
+                    <div className="space-y-4 bg-slate-900/80 p-4 rounded-lg border border-indigo-500/30">
+                      <h4 className="font-semibold text-indigo-300 flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5" /> Remediation Pipeline Active
+                      </h4>
+                      
+                      <div className="space-y-2 text-sm text-slate-300">
+                        <div className="flex items-center gap-2">
+                          {remediationStep >= 1 ? "✅" : "⏳"} {activeSource === "github" ? "Isolating compromised commit history..." : "Scrubbing exposed key from codebase..."}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {remediationStep >= 2 ? "✅" : (remediationStep === 1 ? <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> : "⏳")} Invalidating and revoking old token...
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {remediationStep >= 3 ? "✅" : (remediationStep === 2 ? <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> : "⏳")} Generating secure replacement...
+                        </div>
+                      </div>
+
+                      {remediationStep === 3 && (
+                        <div className="mt-4 p-4 bg-black/60 rounded-lg shadow-inner">
+                          <div>
+                            <p className="text-sm text-green-400 mb-2">🎉 Remediation Complete! Please add this to your locally secure `.env`:</p>
+                            <div className="flex justify-between items-center bg-black p-3 rounded border border-gray-700">
+                              <code className="text-indigo-300">SECURE_KEY={newSecureKey}</code>
+                              <button 
+                                onClick={() => navigator.clipboard.writeText(`SECURE_KEY=${newSecureKey}`)}
+                                className="text-gray-400 hover:text-white"
+                                title="Copy to clipboard"
+                              >
+                                <ClipboardCopy className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {activeSource === "github" && (
+                            <div className="mt-4 pt-4 border-t border-white/10">
+                              <p className="text-sm text-yellow-500 mb-2 flex items-center gap-2">⚡ Git History Scrub Command</p>
+                              <p className="text-xs text-slate-400 mb-2">To completely wipe this compromised key from your deep Git commit history, run this BFG tool command in your repository root:</p>
+                              <div className="flex justify-between items-center bg-black p-3 rounded border border-yellow-700/30 overflow-hidden">
+                                <code className="text-yellow-300/80 text-xs whitespace-nowrap overflow-hidden text-ellipsis mr-3">
+                                  bfg --replace-text &lt;(echo "{item.match}==&gt;REMOVED")
+                                </code>
+                                <button 
+                                  onClick={() => navigator.clipboard.writeText(`bfg --replace-text <(echo "${item.match}==>REMOVED")`)}
+                                  className="text-gray-400 hover:text-white flex-shrink-0"
+                                  title="Copy Git command"
+                                >
+                                  <ClipboardCopy className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
 

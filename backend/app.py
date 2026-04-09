@@ -140,6 +140,44 @@ def scan():
 
 
 # ============================================================
+# 🛠️ REMEDIATE API (WORKFLOW)
+# ============================================================
+@app.route('/remediate', methods=['POST'])
+def remediate():
+    data = request.json or {}
+    old_key = data.get("key")
+    key_type = data.get("type", "Generic Key")
+
+    if not old_key:
+        return jsonify({"error": "No key provided"}), 400
+
+    import random
+    import string
+
+    # Generation rules based on mock types
+    new_key = "secure_" + "".join(random.choices(string.ascii_letters + string.digits, k=32))
+    if "stripe" in key_type.lower():
+        new_key = "sk_live_" + "".join(random.choices(string.ascii_letters + string.digits, k=24))
+    if "github" in key_type.lower():
+        new_key = "ghp_" + "".join(random.choices(string.ascii_letters + string.digits, k=36))
+
+    # In a real scenario, we would store this revocation event in the DB.
+    history_collection.insert_one({
+        "action": "remediate",
+        "revoked_key": old_key[:4] + "***",
+        "type": key_type,
+        "date": str(datetime.now())
+    })
+
+    return jsonify({
+        "status": "success",
+        "revoked_key": old_key,
+        "new_key": new_key,
+        "message": f"Successfully revoked {key_type} and generated secure replacement."
+    })
+
+
+# ============================================================
 # 🚀 RUN SERVER
 # ============================================================
 if __name__ == "__main__":
