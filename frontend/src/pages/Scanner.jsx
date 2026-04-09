@@ -43,8 +43,7 @@ const Scanner = () => {
   const [error, setError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // ✅ NEW ALERT STATE
-  const [alertMsg, setAlertMsg] = useState("");
+
 
   const chartData = results
     ? (() => {
@@ -75,15 +74,15 @@ const Scanner = () => {
     setLoading(true);
     setError("");
     setResults(null);
-    setAlertMsg(""); // reset alert
 
     try {
       let body = {};
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
 
-      if (activeSource === "manual") body = { source: "manual", code: text };
-      else if (activeSource === "github") body = { source: "github", repo };
-      else if (activeSource === "pastebin") body = { source: "paste" };
-      else body = { source: "forum" };
+      if (activeSource === "manual") body = { source: "manual", code: text, email: user.email };
+      else if (activeSource === "github") body = { source: "github", repo, email: user.email };
+      else if (activeSource === "pastebin") body = { source: "paste", email: user.email };
+      else body = { source: "forum", email: user.email };
 
       const res = await fetch(`${BASE_URL}/scan`, {
         method: "POST",
@@ -106,9 +105,8 @@ const Scanner = () => {
 
       // 🔥 ALERT LOGIC
       if (findings.length > 0) {
-        setAlertMsg(`🚨 ${findings.length} leaks detected! Please take action.`);
-      } else {
-        setAlertMsg("✅ No leaks found. You're safe!");
+        // Browser Popup as requested
+        window.alert(`🚨 SECURITY ALERT: ${findings.length} API leak(s) detected! Please take immediate action.`);
       }
 
     } catch {
@@ -140,7 +138,6 @@ const Scanner = () => {
               onClick={() => {
                 setActiveSource(s.id);
                 setResults(null);
-                setAlertMsg("");
               }}
               className={`p-5 rounded-2xl border transition ${
                 activeSource === s.id
@@ -187,17 +184,6 @@ const Scanner = () => {
 
         {/* Error */}
         {error && <div className="text-red-400"><AlertTriangle /> {error}</div>}
-
-        {/* 🔥 ALERT MESSAGE */}
-        {alertMsg && (
-          <div className={`p-4 rounded-xl text-center font-semibold ${
-            alertMsg.includes("🚨")
-              ? "bg-red-500/20 text-red-400 border border-red-500"
-              : "bg-green-500/20 text-green-400 border border-green-500"
-          }`}>
-            {alertMsg}
-          </div>
-        )}
 
         {/* Results */}
         {results && (
