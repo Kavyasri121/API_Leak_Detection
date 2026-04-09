@@ -1,42 +1,85 @@
-from flask_mail import Mail, Message
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask import render_template
+from pymongo import MongoClient
 import uuid, os
+from datetime import datetime
 
 from scanner import scan_text, scan_repository
 from modules.collector import get_paste_data, get_forum_data
-from pymongo import MongoClient
 
+# ============================================================
+# 🚀 INIT APP
+# ============================================================
+app = Flask(__name__)
+CORS(app)
+
+# ============================================================
+# 🗄️ DATABASE CONNECTION
+# ============================================================
 client = MongoClient("mongodb://localhost:27017/")
 db = client["keyshield"]
 
 users_collection = db["users"]
 history_collection = db["history"]
-def home():
-    return render_template('index.html')
-app = Flask(__name__)
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USERNAME'] = 'your_email@gmail.com'
-app.config['MAIL_PASSWORD'] = 'your_app_password'
-app.config['MAIL_USE_TLS'] = True
 
-mail = Mail(app)
-CORS(app) # injected to ensure React connects successfully
-def send_alert_email(to_email, findings):
-    msg = Message(
-        subject="🚨 API Key Leak Detected",
-        sender=app.config['MAIL_USERNAME'],
-        recipients=[to_email]
-    )
-    msg.body = f"""
-    ALERT!
-    We detected API key leaks.
-    Total leaks: {len(findings)}
-    Please secure your keys immediately.
-    """
-    mail.send(msg)
+# ============================================================
+# 🔐 SIGNUP API
+# ============================================================
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.json
+
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not name or not email or not password:
+        return jsonify({"error": "All fields are required"}), 400
+
+    # check if user already exists
+    if users_collection.find_one({"email": email}):
+        return jsonify({"error": "User already exists"}), 400
+
+    users_collection.insert_one({
+        "name": name,
+        "email": email,
+        "password": password
+    })
+
+    return jsonify({"message": "Signup successful"})
+
+
+# ============================================================
+# 🔐 LOGIN API
+# ============================================================
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.json
+
+    email = data.get("email")
+    password = data.get("password")
+
+    if not email or not password:
+        return jsonify({"error": "Email and password required"}), 400
+
+    user = users_collection.find_one({
+        "email": email,
+        "password": password
+    })
+
+    if user:
+        return jsonify({
+            "message": "Login successful",
+            "name": user["name"],
+            "email": user["email"]
+        })
+    else:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+
+# ============================================================
+# 🔍 SCAN API (MAIN FEATURE)
+# ============================================================
 @app.route('/scan', methods=['POST'])
 def scan():
 
@@ -45,29 +88,41 @@ def scan():
     source = data.get("source")
     repo = data.get("repo")
     code = data.get("code")
+    user_email = data.get("email")
 
     results = []
 
     try:
-        # 🔹 1. Manual text
+        # 🔹 Manual text
         if source == "manual":
             results = scan_text(code)
 
-        # 🔹 2. GitHub repo
+        # 🔹 GitHub repo
         elif source == "github" and repo:
             folder = "repo_" + str(uuid.uuid4())[:6]
             os.system(f"git clone {repo} {folder}")
             results = scan_repository(folder)
 
-        # 🔹 3. Paste sites
+        # 🔹 Paste sites
         elif source == "paste":
             paste_data = get_paste_data()
             results = scan_text(paste_data)
 
-        # 🔹 4. Public forums
+        # 🔹 Forums
         elif source == "forum":
             forum_data = get_forum_data()
             results = scan_text(forum_data)
+
+        # ====================================================
+        # 📜 SAVE USER HISTORY
+        # ====================================================
+        if user_email:
+            history_collection.insert_one({
+                "email": user_email,
+                "source": source,
+                "total_findings": len(results),
+                "date": str(datetime.now())
+            })
 
         return jsonify({"results": results})
 
@@ -75,5 +130,8 @@ def scan():
         return jsonify({"error": str(e)}), 500
 
 
+# ============================================================
+# 🚀 RUN SERVER
+# ============================================================
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
